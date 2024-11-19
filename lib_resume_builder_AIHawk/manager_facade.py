@@ -1,14 +1,16 @@
-import base64
 import os
 from pathlib import Path
 import tempfile
 import inquirer
 from lib_resume_builder_AIHawk.config import global_config
 from lib_resume_builder_AIHawk.utils import HTML_to_PDF
+from lib_resume_builder_AIHawk.resume import Resume
+from lib_resume_builder_AIHawk.style_manager import StyleManager
+from lib_resume_builder_AIHawk.resume_generator import ResumeGenerator
 import webbrowser
 
 class FacadeManager:
-    def __init__(self, api_key, style_manager, resume_generator, resume_object, log_path):
+    def __init__(self, api_key, style_manager: StyleManager, resume_generator: ResumeGenerator, resume_object: Resume, log_path: str):
         # Get absolute path of the library directory
         lib_directory = Path(__file__).resolve().parent
         global_config.STRINGS_MODULE_RESUME_PATH = lib_directory / "resume_prompt/strings_feder-cr.py"
@@ -58,13 +60,14 @@ class FacadeManager:
         else:
             self.selected_style = selected_choice.split(' (')[0]
 
-    def pdf_base64(self, job_description_url=None, job_description_text=None):
-        if job_description_url is not None and job_description_text is not None:
-            raise ValueError("Either 'job_description_url' or 'job_description_text' must be provided.")
 
+    def pdf_base64(self, job_description_url: str = None, job_description_text: str = None):
+        if (job_description_url is not None and job_description_text is not None):
+            raise ValueError("Exactly one of 'job_description_url' or 'job_description_text' must be provided.")
+        
         if self.selected_style is None:
             raise ValueError("You must choose a style before generating the PDF.")
-
+        
         style_path = self.style_manager.get_style_path(self.selected_style)
 
         with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.html', encoding='utf-8') as temp_html_file:

@@ -30,10 +30,10 @@ log_folder = 'log'
 if not os.path.exists(log_folder):
     os.makedirs(log_folder)
 
-# Configura il file di log
+# Configure the log file
 log_file = os.path.join(log_folder, 'app.log')
 
-# Configura il logging
+# Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
