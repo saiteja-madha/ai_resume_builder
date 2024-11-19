@@ -29,10 +29,10 @@ log_folder = 'log'
 if not os.path.exists(log_folder):
     os.makedirs(log_folder)
 
-# Configura il file di log
+# Configure the log file
 log_file = os.path.join(log_folder, 'app.log')
 
-# Configura il logging
+# Configure logging
 logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -364,7 +364,7 @@ class LLMResumer:
                     if result:
                         results[section] = result
                 except Exception as exc:
-                    print(f'{section} ha generato un\'eccezione: {exc}')
+                    print(f'{section} threw an exception: {exc}')
         full_resume = "<body>\n"
         full_resume += f"  {results.get('header', '')}\n"
         full_resume += "  <main>\n"
