@@ -8,7 +8,7 @@ from lib_resume_builder_AIHawk.utils import HTML_to_PDF
 import webbrowser
 
 class FacadeManager:
-    def __init__(self, api_key, style_manager, resume_generator, resume_object, log_path):
+    def __init__(self, model_type, model_name, api_key, style_manager, resume_generator, resume_object, log_path, model_url=None):
         # Get absolute path of the library directory
         lib_directory = Path(__file__).resolve().parent
         global_config.STRINGS_MODULE_RESUME_PATH = lib_directory / "resume_prompt/strings_feder-cr.py"
@@ -16,6 +16,9 @@ class FacadeManager:
         global_config.STRINGS_MODULE_NAME = "strings_feder_cr"
         global_config.STYLES_DIRECTORY = lib_directory / "resume_style"
         global_config.LOG_OUTPUT_FILE_PATH = log_path
+        global_config.MODEL_TYPE = model_type
+        global_config.MODEL_NAME = model_name
+        global_config.MODEL_URL = model_url
         global_config.API_KEY = api_key
         self.style_manager = style_manager
         self.style_manager.set_styles_directory(global_config.STYLES_DIRECTORY)
@@ -71,8 +74,9 @@ class FacadeManager:
             temp_html_path = temp_html_file.name
             if job_description_url is None and job_description_text is None:
                 self.resume_generator.create_resume(style_path, temp_html_path)
-            elif job_description_url is not None and job_description_text is None:
-                self.resume_generator.create_resume_job_description_url(style_path, job_description_url, temp_html_path)
+            # TODO: Uncomment when "resume_generator.create_resume_job_description_url" is implemented
+            # elif job_description_url is not None and job_description_text is None:
+            #     self.resume_generator.create_resume_job_description_url(style_path, job_description_url, temp_html_path)
             elif job_description_url is None and job_description_text is not None:
                 self.resume_generator.create_resume_job_description_text(style_path, job_description_text, temp_html_path)
             else:

@@ -8,6 +8,9 @@ class GlobalConfig:
         self.STRINGS_MODULE_NAME: str = None
         self.STYLES_DIRECTORY: Path = None
         self.LOG_OUTPUT_FILE_PATH: Path = None
+        self.MODEL_TYPE: str = "OPENAPI"
+        self.MODEL_NAME: str = None
+        self.MODEL_URL: str = None
         self.API_KEY: str = None
         self.html_template = """
                             <!DOCTYPE html>
@@ -25,6 +28,7 @@ class GlobalConfig:
                             </body>
                             </html>
                             """
+
 
 # Creating the global instance
 global_config = GlobalConfig()

@@ -5,13 +5,14 @@ import textwrap
 import time
 from datetime import datetime
 from typing import Dict, List
+from abc import ABC, abstractmethod
 from langchain_community.document_loaders import TextLoader
+from langchain_core.messages import BaseMessage
 from langchain_core.messages.ai import AIMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompt_values import StringPromptValue
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from langchain_openai import ChatOpenAI
 from langchain_text_splitters import TokenTextSplitter
 from langchain_openai.embeddings import OpenAIEmbeddings
 
@@ -43,13 +44,175 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class LLMLogger:
+# Refer: https://github.com/AIHawk-FOSS/Auto_Jobs_Applier_AI_Agent/blob/main/src/ai_hawk/llm/llm_manager.py
+class AIModel(ABC):
+    @abstractmethod
+    def invoke(self, prompt: str) -> str:
+        pass
 
-    def __init__(self, llm: ChatOpenAI):
+
+class OpenAIModel(AIModel):
+    def __init__(self, api_key: str, llm_model: str):
+        from langchain_openai import ChatOpenAI
+
+        self.model = ChatOpenAI(model_name=llm_model, openai_api_key=api_key, temperature=0.4)
+
+    def invoke(self, prompt: str) -> BaseMessage:
+        logger.debug("Invoking OpenAI API")
+        response = self.model.invoke(prompt)
+        return response
+
+
+class ClaudeModel(AIModel):
+    def __init__(self, api_key: str, llm_model: str):
+        from langchain_anthropic import ChatAnthropic
+
+        self.model = ChatAnthropic(model=llm_model, api_key=api_key, temperature=0.4)
+
+    def invoke(self, prompt: str) -> BaseMessage:
+        response = self.model.invoke(prompt)
+        logger.debug("Invoking Claude API")
+        return response
+
+
+class OllamaModel(AIModel):
+    def __init__(self, llm_model: str, llm_api_url: str):
+        from langchain_ollama import ChatOllama
+
+        if len(llm_api_url) > 0:
+            logger.debug(f"Using Ollama with API URL: {llm_api_url}")
+            self.model = ChatOllama(model=llm_model, base_url=llm_api_url)
+        else:
+            self.model = ChatOllama(model=llm_model)
+
+    def invoke(self, prompt: str) -> BaseMessage:
+        response = self.model.invoke(prompt)
+        return response
+
+
+class PerplexityModel(AIModel):
+    def __init__(self, api_key: str, llm_model: str):
+        from langchain_community.chat_models import ChatPerplexity
+
+        self.model = ChatPerplexity(model=llm_model, api_key=api_key, temperature=0.4)
+
+    def invoke(self, prompt: str) -> BaseMessage:
+        response = self.model.invoke(prompt)
+        return response
+
+
+# gemini doesn't seem to work because API doesn't rstitute answers for questions that involve answers that are too short
+class GeminiModel(AIModel):
+    def __init__(self, api_key: str, llm_model: str):
+        from langchain_google_genai import (
+            ChatGoogleGenerativeAI,
+            HarmBlockThreshold,
+            HarmCategory,
+        )
+
+        self.model = ChatGoogleGenerativeAI(
+            model=llm_model,
+            google_api_key=api_key,
+            safety_settings={
+                HarmCategory.HARM_CATEGORY_UNSPECIFIED: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DEROGATORY: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_TOXICITY: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_VIOLENCE: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUAL: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_MEDICAL: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            },
+        )
+
+    def invoke(self, prompt: str) -> BaseMessage:
+        response = self.model.invoke(prompt)
+        return response
+
+
+class HuggingFaceModel(AIModel):
+    def __init__(self, api_key: str, llm_model: str):
+        from langchain_huggingface import ChatHuggingFace, HuggingFaceEndpoint
+
+        self.model = HuggingFaceEndpoint(repo_id=llm_model, huggingfacehub_api_token=api_key, temperature=0.4)
+        self.chat_model = ChatHuggingFace(llm=self.model)
+
+    def invoke(self, prompt: str) -> BaseMessage:
+        response = self.chat_model.invoke(prompt)
+        logger.debug(f"Invoking Model from Hugging Face API. Response: {response}, Type: {type(response)}")
+        return response
+
+
+class AIAdapter:
+    def __init__(self):
+        self.model = self._create_model()
+
+    def _create_model(self) -> AIModel:
+        llm_model_type = global_config.MODEL_TYPE
+        llm_model_name = global_config.MODEL_NAME
+        llm_api_url = global_config.MODEL_URL
+        api_key = global_config.API_KEY
+
+        logger.debug(f"Using {llm_model_type} with {llm_model_name}")
+
+        if llm_model_type == "OPENAI":
+            return OpenAIModel(api_key, llm_model_name)
+        elif llm_model_type == "CLAUDE":
+            return ClaudeModel(api_key, llm_model_name)
+        elif llm_model_type == "OLLAMA":
+            return OllamaModel(llm_model_name, llm_api_url)
+        elif llm_model_type == "GEMINI":
+            return GeminiModel(api_key, llm_model_name)
+        elif llm_model_type == "HUGGINGFACE":
+            return HuggingFaceModel(api_key, llm_model_name)
+        elif llm_model_type == "PERPLEXITY":
+            return PerplexityModel(api_key, llm_model_name)
+        else:
+            raise ValueError(f"Unsupported model type: {llm_model_type}")
+
+
+class LoggerChatModel:
+
+    def __init__(self, llm: AIModel):
         self.llm = llm
 
-    @staticmethod
-    def log_request(prompts, parsed_reply: Dict[str, Dict]):
+    def __call__(self, messages: List[Dict[str, str]]) -> str:
+        max_retries = 1
+        retry_delay = 1
+
+        for attempt in range(max_retries):
+            try:
+                reply = self.llm.invoke(messages)
+                parsed_reply = self.parse_llmresult(reply)
+                self.log_request(prompts=messages, parsed_reply=parsed_reply)
+                return reply
+            except (openai.RateLimitError, HTTPStatusError) as err:
+                if isinstance(err, HTTPStatusError) and err.response.status_code == 429:
+                    logger.warning(
+                        f"HTTP 429 Too Many Requests: Waiting for {retry_delay} seconds before retrying (Attempt {attempt + 1}/{max_retries})..."
+                    )
+                    time.sleep(retry_delay)
+                    retry_delay *= 2
+                else:
+                    wait_time = self.parse_wait_time_from_error_message(str(err))
+                    logger.warning(
+                        f"Rate limit exceeded or API error. Waiting for {wait_time} seconds before retrying (Attempt {attempt + 1}/{max_retries})..."
+                    )
+                    time.sleep(wait_time)
+            except Exception as e:
+                logger.error(
+                    f"Unexpected error occurred: {str(e)}, retrying in {retry_delay} seconds... (Attempt {attempt + 1}/{max_retries})"
+                )
+                time.sleep(retry_delay)
+                retry_delay *= 2
+
+        logger.critical("Failed to get a response from the model after multiple attempts.")
+        raise Exception("Failed to get a response from the model after multiple attempts.")
+
+    def log_request(self, prompts, parsed_reply: Dict[str, Dict]):
         calls_log = global_config.LOG_OUTPUT_FILE_PATH / "open_ai_calls.json"
         if isinstance(prompts, StringPromptValue):
             prompts = prompts.text
@@ -92,45 +255,6 @@ class LLMLogger:
             json_string = json.dumps(log_entry, ensure_ascii=False, indent=4)
             f.write(json_string + "\n")
 
-
-class LoggerChatModel:
-
-    def __init__(self, llm: ChatOpenAI):
-        self.llm = llm
-
-    def __call__(self, messages: List[Dict[str, str]]) -> str:
-        max_retries = 15
-        retry_delay = 10
-
-        for attempt in range(max_retries):
-            try:
-                reply = self.llm.invoke(messages)
-                parsed_reply = self.parse_llmresult(reply)
-                LLMLogger.log_request(prompts=messages, parsed_reply=parsed_reply)
-                return reply
-            except (openai.RateLimitError, HTTPStatusError) as err:
-                if isinstance(err, HTTPStatusError) and err.response.status_code == 429:
-                    logger.warning(
-                        f"HTTP 429 Too Many Requests: Waiting for {retry_delay} seconds before retrying (Attempt {attempt + 1}/{max_retries})..."
-                    )
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-                else:
-                    wait_time = self.parse_wait_time_from_error_message(str(err))
-                    logger.warning(
-                        f"Rate limit exceeded or API error. Waiting for {wait_time} seconds before retrying (Attempt {attempt + 1}/{max_retries})..."
-                    )
-                    time.sleep(wait_time)
-            except Exception as e:
-                logger.error(
-                    f"Unexpected error occurred: {str(e)}, retrying in {retry_delay} seconds... (Attempt {attempt + 1}/{max_retries})"
-                )
-                time.sleep(retry_delay)
-                retry_delay *= 2
-
-        logger.critical("Failed to get a response from the model after multiple attempts.")
-        raise Exception("Failed to get a response from the model after multiple attempts.")
-
     def parse_llmresult(self, llmresult: AIMessage) -> Dict[str, Dict]:
         content = llmresult.content
         response_metadata = llmresult.response_metadata
@@ -172,9 +296,10 @@ class LoggerChatModel:
 
 
 class LLMResumer:
-    def __init__(self, openai_api_key: str, strings):
-        self.llm_cheap = LoggerChatModel(ChatOpenAI(model_name="gpt-4o-mini", openai_api_key=openai_api_key, temperature=0.4))
-        self.llm_embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
+    def __init__(self, strings):
+        self.ai_adapter = AIAdapter()
+        self.llm_cheap = LoggerChatModel(self.ai_adapter.model)
+        # self.llm_embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key) #TODO: Figure out a way to use llm_embeddings
         self.strings = strings
         self.resume = None
 
@@ -186,58 +311,59 @@ class LLMResumer:
     def set_resume(self, resume):
         self.resume = resume
 
-    def set_job_description_from_url(self, url_job_description):
-        from lib_resume_builder_AIHawk.utils import create_driver_selenium
+    # TODO: Until I figure out how to use llm_embeddings, this method is commented out
+    # def set_job_description_from_url(self, url_job_description):
+    #     from lib_resume_builder_AIHawk.utils import create_driver_selenium
 
-        driver = create_driver_selenium()
-        driver.get(url_job_description)
-        time.sleep(3)
-        body_element = driver.find_element("tag name", "body")
-        response = body_element.get_attribute("outerHTML")
-        driver.quit()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8") as temp_file:
-            temp_file.write(response)
-            temp_file_path = temp_file.name
-        try:
-            loader = TextLoader(temp_file_path, encoding="utf-8", autodetect_encoding=True)
-            document = loader.load()
-        finally:
-            os.remove(temp_file_path)
-        text_splitter = TokenTextSplitter(chunk_size=500, chunk_overlap=50)
-        all_splits = text_splitter.split_documents(document)
-        vectorstore = FAISS.from_documents(documents=all_splits, embedding=self.llm_embeddings)
-        prompt = PromptTemplate(
-            template="""
-            You are an expert job description analyst. Your role is to meticulously analyze and interpret job descriptions. 
-            After analyzing the job description, answer the following question in a clear, and informative manner.
-            
-            Question: {question}
-            Job Description: {context}
-            Answer:
-            """,
-            input_variables=["question", "context"],
-        )
+    #     driver = create_driver_selenium()
+    #     driver.get(url_job_description)
+    #     time.sleep(3)
+    #     body_element = driver.find_element("tag name", "body")
+    #     response = body_element.get_attribute("outerHTML")
+    #     driver.quit()
+    #     with tempfile.NamedTemporaryFile(delete=False, suffix=".html", mode="w", encoding="utf-8") as temp_file:
+    #         temp_file.write(response)
+    #         temp_file_path = temp_file.name
+    #     try:
+    #         loader = TextLoader(temp_file_path, encoding="utf-8", autodetect_encoding=True)
+    #         document = loader.load()
+    #     finally:
+    #         os.remove(temp_file_path)
+    #     text_splitter = TokenTextSplitter(chunk_size=500, chunk_overlap=50)
+    #     all_splits = text_splitter.split_documents(document)
+    #     vectorstore = FAISS.from_documents(documents=all_splits, embedding=self.llm_embeddings)
+    #     prompt = PromptTemplate(
+    #         template="""
+    #         You are an expert job description analyst. Your role is to meticulously analyze and interpret job descriptions.
+    #         After analyzing the job description, answer the following question in a clear, and informative manner.
 
-        def format_docs(docs):
-            return "\n\n".join(doc.page_content for doc in docs)
+    #         Question: {question}
+    #         Job Description: {context}
+    #         Answer:
+    #         """,
+    #         input_variables=["question", "context"],
+    #     )
 
-        context_formatter = vectorstore.as_retriever() | format_docs
-        question_passthrough = RunnablePassthrough()
-        chain_job_description = prompt | self.llm_cheap | StrOutputParser()
-        summarize_prompt_template = self._preprocess_template_string(self.strings.summarize_prompt_template)
-        prompt_summarize = ChatPromptTemplate.from_template(summarize_prompt_template)
-        chain_summarize = prompt_summarize | self.llm_cheap | StrOutputParser()
-        qa_chain = (
-            {
-                "context": context_formatter,
-                "question": question_passthrough,
-            }
-            | chain_job_description
-            | (lambda output: {"text": output})
-            | chain_summarize
-        )
-        result = qa_chain.invoke("Provide, full job description")
-        self.job_description = result
+    #     def format_docs(docs):
+    #         return "\n\n".join(doc.page_content for doc in docs)
+
+    #     context_formatter = vectorstore.as_retriever() | format_docs
+    #     question_passthrough = RunnablePassthrough()
+    #     chain_job_description = prompt | self.llm_cheap | StrOutputParser()
+    #     summarize_prompt_template = self._preprocess_template_string(self.strings.summarize_prompt_template)
+    #     prompt_summarize = ChatPromptTemplate.from_template(summarize_prompt_template)
+    #     chain_summarize = prompt_summarize | self.llm_cheap | StrOutputParser()
+    #     qa_chain = (
+    #         {
+    #             "context": context_formatter,
+    #             "question": question_passthrough,
+    #         }
+    #         | chain_job_description
+    #         | (lambda output: {"text": output})
+    #         | chain_summarize
+    #     )
+    #     result = qa_chain.invoke("Provide, full job description")
+    #     self.job_description = result
 
     def set_job_description_from_text(self, job_description_text):
         prompt = ChatPromptTemplate.from_template(self.strings.summarize_prompt_template)
